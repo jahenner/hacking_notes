@@ -7,3 +7,7 @@
 
 ### WinRM
 `evil-winrm -i <host IP> -u <username> -p <password>`
+
+Can also perform Pass-the-Hash
+
+`evil-winrm -i <host IP> -u <username> -H <password hash>`
