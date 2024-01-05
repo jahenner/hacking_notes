@@ -212,9 +212,63 @@ We will need to be SYSTEM to delete the task, so we will need [psexec](../../use
 
 Will allow us to make changes in the registry as SYSTEM.
 
-Once you found the scheduled task, delete the SD key.
+Once you found the scheduled task, delete the SD subkey.
 
 It will no longer show up when you run:
 
 `schtasks /query /tn <task name>`
 
+## Logon Triggered Persistence
+### Startup Folder
+Each user has a folder under:
+
+`C:\Users\<your_username>\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup`
+
+You can place executables to run whenever a user logs in. If you want it under all users instead of a single user, we can place the executable in:
+
+`C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp`
+
+We can create a reverse shell using [msfvenom](../../useful_tools/Linux/README.md#msfvenom) and then using python we can create a quick http server and grab the file onto the host machine.
+
+Place the executable into one of the above folders. Wait for user to log in and boom... reverse shell!
+
+### Run/Run Once
+Here we can add programs to execute via the registry. Here are 4 places to add your executable:
+
+* `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
+* `HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce`
+* `HKLM\Software\Microsoft\Windows\CurrentVersion\Run`
+* `HKLM\Software\Microsoft\Windows\CurrentVersion\RunOnce`
+
+Where HKCU will be for the current user and HKLM is for every user. Anything under the `Run` key will run every time a user logs in, while `RunOnce` keys will only be executed a single time.
+
+We can create a reverse shell using [msfvenom](../../useful_tools/Linux/README.md#msfvenom) and then using python we can create a quick http server and grab the file onto the host machine.
+
+Place the executable in a non-descript location such as `C:\Windows\`
+
+Open the registry and under `HKLM\Software\Microsoft\Windows\CurrentVersion\Run` (or whichever key you want to manipulate) we will create a `REG_EXPAND_SZ` (expandable string value) type with whatever name you want and the data value will be the location of the executable.
+
+Once the user logs in you should receive a reverse shell!
+
+### Winlogon
+This loads the user profile right after authentication. It has a registry key under:
+
+`HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\`
+
+The subkeys worth noting are:
+
+* `Userinit` points to `userinit.exe` which restores user profile preferences
+* `shell` points to the system's shell, which is usually `explorer.exe`
+
+Changing any of these could break the logon sequence, which is way too loud. But you can add commands seperated by commas and Winlogon will process them all!
+
+We can create a reverse shell using [msfvenom](../../useful_tools/Linux/README.md#msfvenom) and then using python we can create a quick http server and grab the file onto the host machine. Place the file in a "safe" location such as `C:\Windows\`.
+
+We can then add the executable after `userinit` or `shell` subkey's data.
+
+### Logon scripts
+One of the things `userinit.exe` does when loading the user profile is check for an environment variable called `UserInitMprLogonScript`. We can assign any script we want to this and it will be run. It is not set by default!
+
+We can create a reverse shell using [msfvenom](../../useful_tools/Linux/README.md#msfvenom) and then using python we can create a quick http server and grab the file onto the host machine. Place the file in a "safe" location such as `C:\Windows\`.
+
+Go into the registry at `HKCU\Environment` and add a REG_EXPAND_SZ with the name `UserInitMprLogonScript` and the data value as the location of your executable.
