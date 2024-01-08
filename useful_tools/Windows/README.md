@@ -21,3 +21,7 @@ This will open up regedit under a SYSTEM account.
 [repo](https://github.com/int0x33/nc.exe/)
 
 Can upload `nc64.exe` to host machine.
+
+## Credentials
+
+### mimikatz
